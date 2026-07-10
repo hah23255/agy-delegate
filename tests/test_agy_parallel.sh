@@ -101,6 +101,12 @@ printf -- '---\nmodel: x\n## Goal\ng\n' >"$TMP/unterm.md"
 body_u="$(bash -c "source '$SCRIPT_SRC_HELPER'; brief_body '$TMP/unterm.md'")"
 assert_contains "$body_u" "## Goal" "unterminated fm: body preserved"
 
+# --- duration_to_secs: leading-zero durations are base-10, not octal (v0.1.4 fix) ---
+# 08/09 would abort $(( )) with "value too great for base" if parsed as octal.
+assert_eq "$(bash -c "source '$SCRIPT_SRC_HELPER'; duration_to_secs 08m")" "480" "08m -> 480s (base-10, not octal)"
+assert_eq "$(bash -c "source '$SCRIPT_SRC_HELPER'; duration_to_secs 09s")" "9" "09s -> 9s (base-10, not octal)"
+assert_eq "$(bash -c "source '$SCRIPT_SRC_HELPER'; duration_to_secs 2h")" "7200" "2h -> 7200s"
+
 # --- launch: happy path, two briefs, logs + args recorded ---
 LAUNCH="$TMP/launch"
 mkdir -p "$LAUNCH"
@@ -281,4 +287,3 @@ esac
 assert_contains "$out" "Exit status" "help includes last header line"
 
 report
-
