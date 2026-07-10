@@ -179,7 +179,7 @@ TS="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 
 {
-	echo "agy version: $("$AGY_BIN" --version 2>/dev/null || echo unknown)"
+	echo "agy version: $(timeout 30 "$AGY_BIN" --version 2>/dev/null || echo unknown)"
 	echo "started: $(date)"
 	echo "schema-mode: $SCHEMA_MODE"
 } >"$RESULTS_DIR/meta.txt"
@@ -197,7 +197,10 @@ failed_prelaunch=0
 
 run_one() {
 	local brief="$1" name workdir branch logfile bmodel btimeout bschema secs badt
-	name="$(sanitize_name "$(basename "${brief%.*}")")"
+	# basename FIRST, then strip the extension — otherwise ${brief%.*} strips at
+	# a dot in a parent directory and the real filename is lost (D3).
+	name="$(basename "$brief")"
+	name="$(sanitize_name "${name%.*}")"
 	logfile="$RESULTS_DIR/$name.log"
 
 	bmodel="$(fm_get "$brief" model)"
@@ -268,7 +271,10 @@ $(cat "$bschema")"
 		echo "=== brief: $brief ==="
 		echo "=== started: $(date) ==="
 		cd "$workdir" || exit 98
-		timeout $((secs + 60)) "$AGY_BIN" -p "$prompt" "${agy_args[@]}"
+		# -k 10: escalate to SIGKILL 10s after the deadline so a TERM-immune agy
+		# process can't overrun the timeout indefinitely (D1). A killed process
+		# exits 137, classified as timeout below (D6).
+		timeout -k 10 $((secs + 60)) "$AGY_BIN" -p "$prompt" "${agy_args[@]}"
 		rc=$?
 		echo "=== finished: $(date) (exit $rc) ==="
 		exit $rc
@@ -302,12 +308,15 @@ echo "Waiting for $run_count agent(s)..."
 echo
 
 log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
-	tail -n 20 "$1" 2>/dev/null | awk '
+	# Specific markers only. Bare "credit" is dropped (D5): it matches unrelated
+	# prose like "credit card" and mislabels ordinary failures as quota.
+	local re='quota|rate.?limit|usage limit|too many requests|access_terminated|out of credits|insufficient credit|unauthorized|not logged in|login required|429'
+	tail -n 20 "$1" 2>/dev/null | awk -v re="$re" '
     BEGIN { IGNORECASE=1 }
-    /quota|rate limit|credit|unauthorized|not logged in|login required/ { found=1 }
+    $0 ~ re { found=1 }
     END { exit !found }' 2>/dev/null ||
-		tail -n 20 "$1" 2>/dev/null | tr 'A-Z' 'a-z' | awk '
-    /quota|rate limit|credit|unauthorized|not logged in|login required/ { found=1 }
+		tail -n 20 "$1" 2>/dev/null | tr 'A-Z' 'a-z' | awk -v re="$re" '
+    $0 ~ re { found=1 }
     END { exit !found }'
 }
 
@@ -338,7 +347,7 @@ for i in "${!PIDS[@]}"; do
 		fi
 	else
 		rc=$?
-		if [[ $rc -eq 124 ]]; then
+		if [[ $rc -eq 124 || $rc -eq 137 ]]; then
 			status="FAILED(timeout)"
 		elif log_tail_matches_quota "$RESULTS_DIR/${NAMES[$i]}.log"; then
 			status="FAILED(quota)"

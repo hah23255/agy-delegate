@@ -1,8 +1,11 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # agy_lib.sh — pure helper functions for agy_parallel.sh (no side effects on source).
 
+# All three helpers strip a trailing CR first so CRLF briefs parse the same as
+# LF briefs (D4) — otherwise the marker line reads "---\r" and never matches.
 fm_get() { # FILE KEY -> print frontmatter value or nothing
 	awk -v key="$2" '
+    { sub(/\r$/, "") }
     NR==1 && $0 != "---" { exit }
     NR==1 { infm=1; next }
     infm && $0 == "---" { exit }
@@ -14,6 +17,7 @@ fm_get() { # FILE KEY -> print frontmatter value or nothing
 
 brief_body() { # FILE -> print brief with frontmatter stripped
 	awk '
+    { sub(/\r$/, "") }
     NR==1 && $0 != "---" { nofm=1 }
     nofm { print; next }
     NR==1 { infm=1; buf[bn++]=$0; next }
@@ -27,7 +31,7 @@ lint_brief() { # FILE -> 0 if all required sections present, else 1 + stderr
 	local f="$1" missing=""
 	local sec
 	for sec in "## Goal" "## Scope" "## Requirements" "## Verification"; do
-		if ! awk -v s="$sec" '{ line=$0; sub(/[ \t]+$/, "", line) } line == s { found=1 } END { exit !found }' "$f"; then
+		if ! awk -v s="$sec" '{ line=$0; sub(/[ \t\r]+$/, "", line) } line == s { found=1 } END { exit !found }' "$f"; then
 			missing="$missing $sec;"
 		fi
 	done

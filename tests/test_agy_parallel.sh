@@ -286,4 +286,49 @@ case "$out" in
 esac
 assert_contains "$out" "Exit status" "help includes last header line"
 
+# ============ Launcher hardening (D1-D6) ============
+
+# --- D4: awk helpers tolerate CRLF briefs ---
+printf -- '---\r\nmodel: Flash\r\ntimeout: 20m\r\n---\r\n## Goal\r\ng\r\n## Scope\r\ns\r\n## Requirements\r\nr\r\n## Verification\r\nv\r\n' >"$TMP/crlf.md"
+assert_eq "$(bash -c "source '$SCRIPT_SRC_HELPER'; fm_get '$TMP/crlf.md' model")" "Flash" "fm_get on CRLF brief"
+assert_eq "$(bash -c "source '$SCRIPT_SRC_HELPER'; fm_get '$TMP/crlf.md' timeout")" "20m" "fm_get timeout on CRLF brief"
+bash -c "source '$SCRIPT_SRC_HELPER'; lint_brief '$TMP/crlf.md'" 2>/dev/null
+assert_eq "$?" "0" "lint passes a complete CRLF brief"
+body_crlf="$(bash -c "source '$SCRIPT_SRC_HELPER'; brief_body '$TMP/crlf.md'")"
+assert_contains "$body_crlf" "## Goal" "brief_body keeps content on CRLF brief"
+case "$body_crlf" in *"model:"*)
+	FAIL=$((FAIL + 1))
+	echo "FAIL: brief_body leaks CRLF frontmatter"
+	;;
+*) PASS=$((PASS + 1)) ;; esac
+
+# --- D3: agent name derives from the FILE, not a dotted parent directory ---
+# Trigger needs an EXTENSIONLESS file under a dotted dir: ${brief%.*} strips at
+# the last dot in the whole path, which lives in the dir name, eating the file.
+mkdir -p "$LAUNCH/v1.2"
+mkbrief "$LAUNCH/v1.2/deploy"
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d3" "$LAUNCH/v1.2/deploy" 2>&1)"
+assert_file_exists "$TMP/run-d3/deploy.log" "log named after file (deploy), not dotted dir prefix"
+
+# --- D6: a SIGKILL-style exit (137) is classified as timeout, not generic exit ---
+out="$(AGY_STUB_EXIT=137 bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d6" "$LAUNCH/one.md" 2>&1)"
+assert_contains "$out" "FAILED(timeout)" "rc 137 -> FAILED(timeout)"
+
+# --- D5: an unrelated 'credit' mention is NOT misread as a quota failure ---
+printf 'note: your credit card on file was not charged\n' >"$TMP/credit-out.txt"
+out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/credit-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d5a" "$LAUNCH/one.md" 2>&1)"
+assert_contains "$out" "FAILED(exit)" "bare 'credit' text -> FAILED(exit), not quota"
+printf 'Error: insufficient_quota for this billing cycle\n' >"$TMP/realquota-out.txt"
+out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/realquota-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d5b" "$LAUNCH/one.md" 2>&1)"
+assert_contains "$out" "FAILED(quota)" "real quota marker still -> FAILED(quota)"
+
+# --- D1: launch escalates to SIGKILL (timeout -k) so a TERM-immune agent can't overrun ---
+assert_contains "$(cat "$SCRIPT")" "timeout -k" "launch uses timeout -k (SIGKILL escalation)"
+
+# --- D2: the version probe in meta.txt is wrapped in a timeout (agy can hang) ---
+: >"$ARGS"
+AGY_STUB_ARGS="$ARGS" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d2" "$LAUNCH/one.md" >/dev/null 2>&1
+assert_file_exists "$TMP/run-d2/meta.txt" "meta.txt written"
+assert_contains "$(cat "$SCRIPT")" "timeout 30 \"\$AGY_BIN\" --version" "version probe wrapped in timeout"
+
 report
