@@ -111,7 +111,7 @@ if [[ $VERIFY -eq 1 ]]; then
 	trap 'rm -rf "$vtmp"' EXIT
 
 	# 1. version
-	if v="$("$AGY_BIN" --version 2>/dev/null)"; then
+	if v="$(timeout -k 2 30 "$AGY_BIN" --version 2>/dev/null)"; then
 		echo "  PASS  version: $v"
 	else
 		echo "  FAIL  version: agy not reachable"
@@ -158,8 +158,8 @@ if [[ $LINT -eq 1 ]]; then
 fi
 
 dup="$(for b in "${BRIEFS[@]}"; do
-	n="$(basename "${b%.*}")"
-	sanitize_name "$n"
+	n="$(basename "$b")" # basename FIRST, then strip extension (see run_one note)
+	sanitize_name "${n%.*}"
 	echo
 done | sort | uniq -d | head -n 1)"
 [[ -z "$dup" ]] || die "duplicate brief name after sanitization: $dup (rename one brief)"
@@ -172,6 +172,19 @@ if [[ $USE_WORKTREE -eq 1 && $IS_GIT -eq 0 ]]; then
 fi
 if [[ -z "$BASE_REF" && $IS_GIT -eq 1 ]]; then
 	BASE_REF="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+fi
+
+# Pin commit identity repo-locally when absent: agy runs inside a proot
+# container with its OWN global git config — an agent committed as "Agy
+# Developer <agy@example.com>" (2026-07-10). GIT_AUTHOR_* env does NOT cross
+# proot; repo-local config is the mitigation that works. Worktrees share the
+# repo-local config, so one pin covers every agent. An identity the repo
+# already has locally is respected. Override via DELEGATE_GIT_NAME/EMAIL.
+if [[ $IS_GIT -eq 1 ]]; then
+	git -C "$REPO" config --local user.name >/dev/null 2>&1 ||
+		git -C "$REPO" config user.name "${DELEGATE_GIT_NAME:-hah23255}"
+	git -C "$REPO" config --local user.email >/dev/null 2>&1 ||
+		git -C "$REPO" config user.email "${DELEGATE_GIT_EMAIL:-hah23255@users.noreply.github.com}"
 fi
 
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -309,8 +322,9 @@ echo
 
 log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 	# Specific markers only. Bare "credit" is dropped (D5): it matches unrelated
-	# prose like "credit card" and mislabels ordinary failures as quota.
-	local re='quota|rate.?limit|usage limit|too many requests|access_terminated|out of credits|insufficient credit|unauthorized|not logged in|login required|429'
+	# prose like "credit card" and mislabels ordinary failures as quota. 429 must
+	# carry HTTP context — bare 429 matches line numbers/byte counts (kimi lesson).
+	local re='quota|rate.?limit|usage limit|too many requests|access_terminated|out of credits|insufficient credit|unauthorized|not logged in|login required|(status|http|code|error)[: ]+429'
 	tail -n 20 "$1" 2>/dev/null | awk -v re="$re" '
     BEGIN { IGNORECASE=1 }
     $0 ~ re { found=1 }

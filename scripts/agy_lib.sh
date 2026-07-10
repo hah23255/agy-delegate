@@ -4,14 +4,20 @@
 # All three helpers strip a trailing CR first so CRLF briefs parse the same as
 # LF briefs (D4) — otherwise the marker line reads "---\r" and never matches.
 fm_get() { # FILE KEY -> print frontmatter value or nothing
+	# Values are only honored if the frontmatter block CLOSES (second ---);
+	# a never-closed block would otherwise turn ordinary body lines like
+	# "timeout: ..." into bogus overrides (brief_body already treats a
+	# never-closed block as body — this keeps the two helpers consistent).
 	awk -v key="$2" '
     { sub(/\r$/, "") }
     NR==1 && $0 != "---" { exit }
     NR==1 { infm=1; next }
-    infm && $0 == "---" { exit }
-    infm && index($0, key ":") == 1 {
+    infm && $0 == "---" { if (found) print v; exit }
+    infm && !found && index($0, key ":") == 1 {
       v = substr($0, length(key) + 2)
-      sub(/^[ \t]+/, "", v); print v; exit
+      sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+      if (v ~ /^".*"$/) { v = substr(v, 2, length(v) - 2) }
+      found = 1
     }' "$1"
 }
 

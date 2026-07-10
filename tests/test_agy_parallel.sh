@@ -330,5 +330,40 @@ assert_contains "$(cat "$SCRIPT")" "timeout -k" "launch uses timeout -k (SIGKILL
 AGY_STUB_ARGS="$ARGS" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d2" "$LAUNCH/one.md" >/dev/null 2>&1
 assert_file_exists "$TMP/run-d2/meta.txt" "meta.txt written"
 assert_contains "$(cat "$SCRIPT")" "timeout 30 \"\$AGY_BIN\" --version" "version probe wrapped in timeout"
+assert_contains "$(cat "$SCRIPT")" "timeout -k 2 30 \"\$AGY_BIN\" --version" "--verify version probe wrapped too"
+
+# --- D5 residual: bare '429' (line counts, byte totals) is NOT quota; HTTP-context 429 is ---
+printf 'processed 429 lines of output\n' >"$TMP/line429-out.txt"
+out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/line429-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d5c" "$LAUNCH/one.md" 2>&1)"
+assert_contains "$out" "FAILED(exit)" "bare 429 -> FAILED(exit), not quota"
+printf 'server replied status: 429\n' >"$TMP/http429-out.txt"
+out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/http429-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-d5d" "$LAUNCH/one.md" 2>&1)"
+assert_contains "$out" "FAILED(quota)" "HTTP-context 429 -> FAILED(quota)"
+
+# --- D3 residual: the dup-name GUARD must derive names like run_one does ---
+# (old pattern basename "${b%.*}" turned briefs/v1.2/deploy + v9.9/deploy into
+# distinct v1/v9 while both actually run as "deploy" — undetected collision)
+mkdir -p "$LAUNCH/v9.9" && cp "$LAUNCH/v1.2/deploy" "$LAUNCH/v9.9/deploy"
+err="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --no-lint --results-dir "$TMP/run-dup2" "$LAUNCH/v1.2/deploy" "$LAUNCH/v9.9/deploy" 2>&1)"
+assert_eq "$?" "1" "same-basename briefs in dotted dirs -> dup rejected"
+assert_contains "$err" "duplicate" "dup error names the collision"
+
+# --- fm_get close-gating: never-closed frontmatter is body, not overrides ---
+{
+	printf -- '---\ntimeout: 5x\nthe dashes above were a horizontal rule\n'
+	printf '## Goal\nx\n## Scope\nx\n## Requirements\nx\n## Verification\nx\n'
+} >"$TMP/unclosed.md"
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --no-lint --results-dir "$TMP/run-fm" "$TMP/unclosed.md" 2>&1)"
+assert_eq "$?" "0" "unclosed frontmatter: bogus timeout NOT honored"
+
+# --- identity pin: repo-local commit identity (bot-author guard, 2026-07-10) ---
+mkdir -p "$TMP/repo-id" && git -C "$TMP/repo-id" init -q
+git -C "$TMP/repo-id" -c user.name=seed -c user.email=seed@x commit -q --allow-empty -m init
+bash "$SCRIPT" --repo "$TMP/repo-id" --no-worktree --results-dir "$TMP/run-id" "$LAUNCH/one.md" >/dev/null 2>&1
+assert_eq "$(git -C "$TMP/repo-id" config --local user.name)" "hah23255" "absent identity pinned (name)"
+assert_eq "$(git -C "$TMP/repo-id" config --local user.email)" "hah23255@users.noreply.github.com" "absent identity pinned (email)"
+git -C "$TMP/repo-id" config user.name "Custom Local"
+bash "$SCRIPT" --repo "$TMP/repo-id" --no-worktree --results-dir "$TMP/run-id2" "$LAUNCH/one.md" >/dev/null 2>&1
+assert_eq "$(git -C "$TMP/repo-id" config --local user.name)" "Custom Local" "existing local identity respected"
 
 report
