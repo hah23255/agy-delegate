@@ -161,4 +161,17 @@ else
 	echo "FAIL: throttle — expected >=4s serialized, got ${elapsed}s"
 fi
 
+# --- empty brief (no schema) fails the run (review fix) ---
+printf -- '---\nmodel: x\n---\n\n' >"$LAUNCH/empty.md"
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --no-lint --results-dir "$TMP/run-e1" "$LAUNCH/empty.md" 2>&1)"
+assert_eq "$?" "1" "empty brief -> exit 1"
+assert_contains "$out" "FAILED(empty-brief)" "empty brief status shown"
+
+# --- empty brief WITH schema still fails (guard precedes suffix) (review fix) ---
+printf '{"type":"object","properties":{"x":{"type":"string"}}}\n' >"$LAUNCH/empty-schema.json"
+printf -- '---\nschema: empty-schema.json\n---\n\n' >"$LAUNCH/empty2.md"
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --no-lint --results-dir "$TMP/run-e2" "$LAUNCH/empty2.md" 2>&1)"
+assert_eq "$?" "1" "empty brief with schema -> exit 1"
+assert_contains "$out" "FAILED(empty-brief)" "schema does not mask empty brief"
+
 report

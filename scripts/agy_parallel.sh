@@ -149,6 +149,7 @@ echo
 
 declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS
 run_count=0
+failed_prelaunch=0
 
 run_one() {
 	local brief="$1" name workdir branch logfile bmodel btimeout bschema secs
@@ -171,16 +172,17 @@ run_one() {
 
 	local prompt
 	prompt="$(brief_body "$brief")"
+
+	if [[ -z "${prompt//[[:space:]]/}" ]]; then
+		echo "  FAILED(empty-brief)  [$name]  brief body is empty"
+		return 1
+	fi
+
 	if [[ -n "$bschema" ]]; then
 		prompt="$prompt
 
 Your final message must be exactly one JSON object matching this schema, and no other text:
 $(cat "$bschema")"
-	fi
-
-	if [[ -z "${prompt//[[:space:]]/}" ]]; then
-		echo "  FAILED(empty-brief)  [$name]  brief body is empty"
-		return 1
 	fi
 
 	workdir="$REPO"
@@ -220,7 +222,7 @@ wait_for_slot() {
 
 for brief in "${BRIEFS[@]}"; do
 	wait_for_slot
-	run_one "$brief" && run_count=$((run_count + 1))
+	if run_one "$brief"; then run_count=$((run_count + 1)); else failed_prelaunch=$((failed_prelaunch + 1)); fi
 done
 
 echo
@@ -257,5 +259,5 @@ for i in "${!PIDS[@]}"; do
 done
 
 echo
-echo "Done. $((run_count - failed))/$run_count agent(s) succeeded."
-exit $failed
+echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded."
+exit $((failed + failed_prelaunch))
