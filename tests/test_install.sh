@@ -8,7 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 CLAUDE_SKILLS_DIR="$TMP/skills" bash "$ROOT_DIR/install.sh" >"$TMP/out.txt" 2>&1
 assert_eq "$?" "0" "install.sh exits 0"
 assert_eq "$(readlink "$TMP/skills/agy-delegate")" "$ROOT_DIR" "symlink points at repo"
-assert_contains "$(cat "$TMP/out.txt")" "0.1.0" "prints version"
+assert_contains "$(cat "$TMP/out.txt")" "$(cat "$ROOT_DIR/VERSION")" "prints version"
 
 # re-running is idempotent
 CLAUDE_SKILLS_DIR="$TMP/skills" bash "$ROOT_DIR/install.sh" >/dev/null 2>&1
