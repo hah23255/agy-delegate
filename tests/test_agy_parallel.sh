@@ -269,4 +269,16 @@ assert_eq "$?" "1" "verify: echo/edit checks can't fully pass against dumb stub"
 assert_contains "$out" "contract check" "verify announces itself"
 assert_contains "$out" "version" "verify includes version check"
 
+# --- help output contains only the header comment (no script source) ---
+out="$(bash "$SCRIPT" --help)"
+case "$out" in
+*"set -uo pipefail"*)
+	FAIL=$((FAIL + 1))
+	echo "FAIL: --help leaks script source"
+	;;
+*) PASS=$((PASS + 1)) ;;
+esac
+assert_contains "$out" "Exit status" "help includes last header line"
+
 report
+
