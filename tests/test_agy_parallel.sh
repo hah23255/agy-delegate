@@ -189,4 +189,60 @@ out="$(bash "$SCRIPT" --repo "$LAUNCH" --base "no-such-ref" \
 assert_eq "$?" "1" "bad base ref -> 1 failure"
 assert_contains "$out" "FAILED(worktree)" "worktree failure reported"
 
+# --- schema gate ---
+cat >"$LAUNCH/schema.json" <<'EOF'
+{"type":"object","properties":{"name":{"type":"string"},"count":{"type":"integer"}},"required":["name","count"]}
+EOF
+cat >"$LAUNCH/withschema.md" <<'EOF'
+---
+schema: schema.json
+---
+## Goal
+g
+## Scope
+s
+## Requirements
+r
+## Verification
+v
+EOF
+
+# valid output -> OK
+printf '{"name": "x", "count": 1}\n' >"$TMP/valid-out.txt"
+out="$(AGY_STUB_STDOUT="$TMP/valid-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run8" "$LAUNCH/withschema.md" 2>&1)"
+assert_eq "$?" "0" "valid schema output -> exit 0"
+assert_contains "$out" "OK" "valid -> OK status"
+
+# salvageable output -> PARTIAL(schema), exit 0 in salvage mode
+printf '{"name": "x", "count": "not-a-number"}\n' >"$TMP/partial-out.txt"
+out="$(AGY_STUB_STDOUT="$TMP/partial-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run9" "$LAUNCH/withschema.md" 2>&1)"
+assert_eq "$?" "0" "salvage mode: partial does not fail the run"
+assert_contains "$out" "PARTIAL(schema)" "partial status shown"
+assert_file_exists "$TMP/run9/withschema.partial.json" "partial json written"
+
+# same output in strict mode -> FAILED(schema), exit 1
+out="$(AGY_STUB_STDOUT="$TMP/partial-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--schema-mode strict --results-dir "$TMP/run10" "$LAUNCH/withschema.md" 2>&1)"
+assert_eq "$?" "1" "strict mode: partial fails the run"
+assert_contains "$out" "FAILED(schema)" "strict failure status"
+
+# no JSON at all -> FAILED(schema) even in salvage mode
+printf 'the agent wrote prose only\n' >"$TMP/nojson-out.txt"
+out="$(AGY_STUB_STDOUT="$TMP/nojson-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run11" "$LAUNCH/withschema.md" 2>&1)"
+assert_eq "$?" "1" "no JSON -> failed in salvage mode"
+
+# warn mode -> OK regardless
+out="$(AGY_STUB_STDOUT="$TMP/nojson-out.txt" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--schema-mode warn --results-dir "$TMP/run12" "$LAUNCH/withschema.md" 2>&1)"
+assert_eq "$?" "0" "warn mode never fails on schema"
+
+# schema prompt suffix reaches the agent
+: >"$ARGS"
+AGY_STUB_ARGS="$ARGS" AGY_STUB_STDOUT="$TMP/valid-out.txt" bash "$SCRIPT" --repo "$LAUNCH" \
+	--no-worktree --results-dir "$TMP/run13" "$LAUNCH/withschema.md" >/dev/null 2>&1
+assert_contains "$(cat "$ARGS")" "exactly one JSON object" "schema instruction appended to prompt"
+
 report

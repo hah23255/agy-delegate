@@ -190,7 +190,9 @@ $(cat "$bschema")"
 		branch="agy/$name"
 		mkdir -p "$RESULTS_DIR/worktrees"
 		if ! git -C "$REPO" worktree add -b "$branch" "$workdir" "$BASE_REF" >>"$logfile" 2>&1; then
-			# branch may already exist from a prior run; retry attaching to it
+			# Branch may exist from a prior PRUNED run; retry attaching. NOTE: a live
+			# leftover worktree still blocks this (git refuses double-checkout) —
+			# remove the old worktree first (see footer hint).
 			if ! git -C "$REPO" worktree add "$workdir" "$branch" >>"$logfile" 2>&1; then
 				echo "  FAILED(worktree)  [$name]  see $logfile"
 				return 1
@@ -256,6 +258,26 @@ failed=0
 for i in "${!PIDS[@]}"; do
 	if wait "${PIDS[$i]}"; then
 		status="OK"
+		schema="${SCHEMAS[$i]}"
+		if [[ -n "$schema" && "$SCHEMA_MODE" != "warn" ]]; then
+			python3 "$SCRIPT_DIR/validate_output.py" \
+				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
+				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json"
+			vrc=$?
+			case "$SCHEMA_MODE:$vrc" in
+			*:0) status="OK" ;;
+			salvage:2) status="PARTIAL(schema)" ;;
+			*)
+				status="FAILED(schema)"
+				failed=$((failed + 1))
+				;;
+			esac
+		elif [[ -n "$schema" && "$SCHEMA_MODE" == "warn" ]]; then
+			python3 "$SCRIPT_DIR/validate_output.py" \
+				"$RESULTS_DIR/${NAMES[$i]}.log" "$schema" \
+				--out "$RESULTS_DIR/${NAMES[$i]}.partial.json" >/dev/null 2>&1 ||
+				echo "  warn: [${NAMES[$i]}] schema violations (see ${NAMES[$i]}.partial.json)"
+		fi
 	else
 		rc=$?
 		if [[ $rc -eq 124 ]]; then
