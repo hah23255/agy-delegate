@@ -1,5 +1,5 @@
 # agy-delegate
-Claude Code skill: delegate implementation briefs to parallel Google Antigravity CLI (`agy`) agents with git-worktree isolation and a JSON-schema output gate. Version: 0.1.4.
+Claude Code skill: delegate implementation briefs to parallel Google Antigravity CLI (`agy`) agents with git-worktree isolation and a JSON-schema output gate. Current version is in the `VERSION` file (and git tags).
 
 [English](#english) · [Български](#български)
 
