@@ -253,6 +253,12 @@ AGY_STUB_ARGS="$ARGS" AGY_STUB_STDOUT="$TMP/valid-out.txt" bash "$SCRIPT" --repo
 	--no-worktree --results-dir "$TMP/run13" "$LAUNCH/withschema.md" >/dev/null 2>&1
 assert_contains "$(cat "$ARGS")" "exactly one JSON object" "schema instruction appended to prompt"
 
+# --- bad timeout frontmatter fails prelaunch with named reason (release fix) ---
+printf -- '---\ntimeout: 20 minutes\n---\n## Goal\ng\n## Scope\ns\n## Requirements\nr\n## Verification\nv\n' >"$LAUNCH/badtime.md"
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run-bt" "$LAUNCH/badtime.md" 2>&1)"
+assert_eq "$?" "1" "bad timeout -> exit 1"
+assert_contains "$out" "FAILED(bad-timeout)" "bad timeout named status"
+
 # --- verify mode against the stub ---
 printf 'VERIFY_OK\n' >"$TMP/verify-out.txt"
 out="$(AGY_STUB_STDOUT="$TMP/verify-out.txt" bash "$SCRIPT" --verify 2>&1)"

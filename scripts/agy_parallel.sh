@@ -196,7 +196,7 @@ run_count=0
 failed_prelaunch=0
 
 run_one() {
-	local brief="$1" name workdir branch logfile bmodel btimeout bschema secs
+	local brief="$1" name workdir branch logfile bmodel btimeout bschema secs badt
 	name="$(sanitize_name "$(basename "${brief%.*}")")"
 	logfile="$RESULTS_DIR/$name.log"
 
@@ -204,6 +204,16 @@ run_one() {
 	[[ -n "$bmodel" ]] || bmodel="$MODEL"
 	btimeout="$(fm_get "$brief" timeout)"
 	[[ -n "$btimeout" ]] || btimeout="$TIMEOUT"
+	case "$btimeout" in
+	'' | *[!0-9hms]*) badt=1 ;;
+	*[hms]*[hms]*) badt=1 ;;
+	*[hms]) case "${btimeout%?}" in '' | *[!0-9]*) badt=1 ;; *) badt=0 ;; esac ;;
+	*) case "$btimeout" in *[!0-9]*) badt=1 ;; *) badt=0 ;; esac ;;
+	esac
+	if [[ ${badt:-0} -eq 1 ]]; then
+		echo "  FAILED(bad-timeout)  [$name]  invalid timeout: '$btimeout'"
+		return 1
+	fi
 	bschema="$(fm_get "$brief" schema)"
 	if [[ -n "$bschema" && "$bschema" != /* ]]; then
 		bschema="$(cd "$(dirname "$brief")" && pwd)/$bschema"
