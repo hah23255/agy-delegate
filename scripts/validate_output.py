@@ -48,3 +48,82 @@ def extract_json(text):
         except (json.JSONDecodeError, ValueError):
             continue
     return last
+
+
+_TYPE_MAP = {
+    "string": str,
+    "integer": int,
+    "number": (int, float),
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _type_ok(value, prop_schema):
+    expected = prop_schema.get("type")
+    if expected is None:
+        return True
+    py = _TYPE_MAP.get(expected)
+    if py is None:
+        return True
+    if expected == "integer" and isinstance(value, bool):
+        return False
+    if expected in ("number", "integer") and isinstance(value, bool):
+        return False
+    return isinstance(value, py)
+
+
+def salvage(data, schema):
+    """Field-by-field check. Returns (partial, missing, invalid)."""
+    partial, missing, invalid = {}, [], []
+    props = schema.get("properties", {})
+    required = schema.get("required", [])
+    for key, prop_schema in props.items():
+        if key not in data:
+            if key in required:
+                missing.append(key)
+            continue
+        if _type_ok(data[key], prop_schema):
+            partial[key] = data[key]
+        else:
+            invalid.append(key)
+    return partial, missing, invalid
+
+
+def main(argv):
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("log_file")
+    ap.add_argument("schema_file")
+    ap.add_argument("--out", default=None)
+    args = ap.parse_args(argv)
+
+    with open(args.log_file) as f:
+        text = f.read()
+    with open(args.schema_file) as f:
+        schema = json.load(f)
+
+    data = extract_json(text)
+    if data is None or not isinstance(data, dict):
+        return 3
+
+    partial, missing, invalid = salvage(data, schema)
+    if args.out:
+        with open(args.out, "w") as f:
+            json.dump(
+                {**partial, "_missing": missing, "_invalid": invalid}, f, indent=2
+            )
+
+    if not missing and not invalid:
+        return 0
+    if partial:
+        return 2
+    return 1
+
+
+if __name__ == "__main__":
+    import sys as _sys
+
+    _sys.exit(main(_sys.argv[1:]))

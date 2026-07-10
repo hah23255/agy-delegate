@@ -1,8 +1,10 @@
+import json
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from validate_output import extract_json
+from validate_output import extract_json, salvage
 
 
 def test_extracts_fenced_json_block():
@@ -42,3 +44,72 @@ def test_extracts_bare_json_array():
 def test_span_skip_correct_with_trailing_comma_repair():
     log = '[{"a":1,},{"b":2,},{"c":3,},{}]'
     assert extract_json(log) == [{"a": 1}, {"b": 2}, {"c": 3}, {}]
+
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "count": {"type": "integer"},
+        "tags": {"type": "array"},
+    },
+    "required": ["name", "count"],
+}
+
+
+def test_salvage_full_valid():
+    partial, missing, invalid = salvage({"name": "x", "count": 2, "tags": []}, SCHEMA)
+    assert partial == {"name": "x", "count": 2, "tags": []}
+    assert missing == [] and invalid == []
+
+
+def test_salvage_missing_required_field():
+    partial, missing, invalid = salvage({"name": "x"}, SCHEMA)
+    assert partial == {"name": "x"}
+    assert missing == ["count"] and invalid == []
+
+
+def test_salvage_wrong_type_field():
+    partial, missing, invalid = salvage({"name": "x", "count": "two"}, SCHEMA)
+    assert partial == {"name": "x"}
+    assert missing == [] and invalid == ["count"]
+
+
+def _run_cli(tmp_path, log_text, schema=SCHEMA):
+    log = tmp_path / "agent.log"
+    log.write_text(log_text)
+    sch = tmp_path / "schema.json"
+    sch.write_text(json.dumps(schema))
+    out = tmp_path / "partial.json"
+    script = os.path.join(
+        os.path.dirname(__file__), "..", "scripts", "validate_output.py"
+    )
+    r = subprocess.run(
+        ["python3", script, str(log), str(sch), "--out", str(out)],
+        capture_output=True,
+        text=True,
+    )
+    return r.returncode, out
+
+
+def test_cli_exit_0_on_valid(tmp_path):
+    rc, _ = _run_cli(tmp_path, '{"name": "x", "count": 1}')
+    assert rc == 0
+
+
+def test_cli_exit_2_and_partial_file_on_salvage(tmp_path):
+    rc, out = _run_cli(tmp_path, '{"name": "x", "count": "bad"}')
+    assert rc == 2
+    data = json.loads(out.read_text())
+    assert data["name"] == "x"
+    assert data["_invalid"] == ["count"] and data["_missing"] == []
+
+
+def test_cli_exit_3_when_no_json(tmp_path):
+    rc, _ = _run_cli(tmp_path, "the model rambled with no JSON")
+    assert rc == 3
+
+
+def test_cli_exit_1_when_nothing_salvageable(tmp_path):
+    rc, _ = _run_cli(tmp_path, '{"name": 5, "count": "bad"}')
+    assert rc == 1
