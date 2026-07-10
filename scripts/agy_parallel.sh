@@ -157,6 +157,13 @@ if [[ $LINT -eq 1 ]]; then
 	done
 fi
 
+dup="$(for b in "${BRIEFS[@]}"; do
+	n="$(basename "${b%.*}")"
+	sanitize_name "$n"
+	echo
+done | sort | uniq -d | head -n 1)"
+[[ -z "$dup" ]] || die "duplicate brief name after sanitization: $dup (rename one brief)"
+
 IS_GIT=0
 if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then IS_GIT=1; fi
 if [[ $USE_WORKTREE -eq 1 && $IS_GIT -eq 0 ]]; then

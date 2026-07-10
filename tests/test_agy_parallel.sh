@@ -43,6 +43,14 @@ assert_eq "$?" "1" "bad repo -> exit 1"
 err="$(bash "$SCRIPT" --bogus 2>&1)"
 assert_eq "$?" "1" "unknown option -> exit 1"
 
+# --- preflight: duplicate sanitized brief names rejected (release fix) ---
+mkdir -p "$TMP/d1" "$TMP/d2"
+mkbrief "$TMP/d1/same.md"
+mkbrief "$TMP/d2/same.md"
+err="$(bash "$SCRIPT" --repo "$TMP" "$TMP/d1/same.md" "$TMP/d2/same.md" 2>&1)"
+assert_eq "$?" "1" "duplicate names -> exit 1"
+assert_contains "$err" "duplicate brief name" "duplicate names error message"
+
 # --- lint: reject brief missing sections ---
 printf '## Goal\nonly a goal\n' >"$TMP/bad.md"
 err="$(bash "$SCRIPT" --repo "$TMP" "$TMP/bad.md" 2>&1)"
