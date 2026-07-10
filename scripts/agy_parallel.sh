@@ -29,6 +29,7 @@ set -uo pipefail
 
 AGY_BIN="${AGY_BIN:-agy}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/agy_lib.sh"
 REPO="$(pwd)"
 MODEL=""
 TIMEOUT="15m"
@@ -112,3 +113,15 @@ REPO="$(cd "$REPO" && pwd)"
 for b in "${BRIEFS[@]}"; do
 	[[ -f "$b" ]] || die "brief file not found: $b"
 done
+
+if [[ $LINT -eq 1 ]]; then
+	for b in "${BRIEFS[@]}"; do
+		lint_brief "$b" || exit 1
+	done
+fi
+
+# TEMPORARY minimal launch (replaced in the launch-engine task)
+for b in "${BRIEFS[@]}"; do
+	"$AGY_BIN" --print --dangerously-skip-permissions -p "$(brief_body "$b")" >/dev/null 2>&1 || exit 1
+done
+exit 0
