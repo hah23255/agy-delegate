@@ -1,5 +1,5 @@
 # agy-delegate
-Claude Code skill: delegate implementation briefs to parallel Google Antigravity CLI (`agy`) agents with git-worktree isolation and a JSON-schema output gate. Version: 0.1.3.
+Claude Code skill: delegate implementation briefs to parallel Google Antigravity CLI (`agy`) agents with git-worktree isolation and a JSON-schema output gate. Version: 0.1.4.
 
 [English](#english) · [Български](#български)
 
@@ -50,7 +50,7 @@ All automated tests use a stub `agy` to ensure zero credits are burned:
 ```bash
 bash tests/test_agy_parallel.sh
 bash tests/test_install.sh
-python3 -m pytest tests/ -q
+pytest tests/ -q
 ```
 The real-agy contract check is for humans to run only (costs credits):
 ```bash
@@ -62,6 +62,35 @@ Do NOT run the test suites from shared storage such as `/storage/emulated/0` (sd
 
 ### On quota
 If you encounter `FAILED(quota)`, fall back to kimi-delegate, and then to native Claude subagents.
+
+### Architecture Mapping
+```mermaid
+graph TD
+    A[Task Briefs *.md] --> B[agy_parallel.sh Launcher]
+    B --> C{Linter & Validator}
+    C -->|Invalid| D[FAILED Prelaunch]
+    C -->|Valid| E[Worktree Allocator]
+    E --> F[Parallel Executor]
+    F --> G[Antigravity CLI agy]
+    G --> H{Schema Gate}
+    H -->|Match| I[Status OK]
+    H -->|Mismatch / salvage| J[Status PARTIAL]
+    H -->|Mismatch / strict| K[Status FAILED]
+```
+
+### Fault Handling Manual
+| Status / Error | Root Cause | Mitigation |
+| :--- | :--- | :--- |
+| `FAILED(exit)` | The `agy` process terminated with a non-zero exit status. | Check the specific log in `.agy-runs/<ts>/<name>.log` for tracebacks or system errors. |
+| `FAILED(timeout)` | The agent execution exceeded the timeout limit. | Increase the timeout limit in the command via `--timeout` or override in the brief's frontmatter. |
+| `FAILED(quota)` | Credit or rate limits on the Google Pro/Ultra subscription were reached. | Switch to `kimi-delegate` or invoke native Claude subagents. |
+| `FAILED(schema)` | The generated output failed validation against the provided JSON schema. | Inspect the output log. If in `salvage` mode, look at the parsed values in `<name>.partial.json`. |
+| `FAILED(worktree)` | Git worktree creation failed (commonly because the branch or directory already exists). | Clean up leftover worktrees manually with `git worktree prune` and delete the offending branch. |
+
+### Common Issues & Golden Rules
+* **Golden Rule 1: Prompt Positioning Contract.** The `-p` flag in `agy` binds the very next token as the prompt. Any CLI flags must be specified *after* the prompt, otherwise they will be swallowed as prompt text.
+* **Golden Rule 2: $HOME Directory Restraint.** Due to `proot` bind-mounting rules, the target repository and brief files must reside under `$HOME`. Run from ext4 storage, never `/storage/emulated/0`.
+* **Golden Rule 3: No Unbounded Runs.** Never run parallel jobs without timeouts. The host wrapper enforces `timeout -k 10` to guarantee cleanup of hanging processes.
 
 ## Български
 
@@ -85,7 +114,7 @@ bash install.sh
 ```bash
 agy -p "PROMPT" --dangerously-skip-permissions --print-timeout 15m [--model "..."]
 ```
-Съществува строго правило: **`-p` обвързва следващия токен като промпт (prompt)**. Всеки друг флаг трябва да идва СЛЕД промпта, в противен случай `--print` поглъща съседния флаг като текст на промпта. Тъй като agy се обновява тихо, ако забележите промяна в поведението, изпълнете отново проверката на договора (струва кредити):
+Съществува строго правило: **`-p` обвързва следващия токен като промпт (prompt)**. Всеки друг флаг трябва да идва СЛЕД промпта, в противен случай `--print` поглъща съседния флаг как текст на промпта. Тъй като agy се обновява тихо, ако забележите промяна в поведението, изпълнете отново проверката на договора (струва кредити):
 ```bash
 bash scripts/agy_parallel.sh --verify
 ```
@@ -110,7 +139,7 @@ bash scripts/agy_parallel.sh --repo /path/to/repo briefs/*.md
 ```bash
 bash tests/test_agy_parallel.sh
 bash tests/test_install.sh
-python3 -m pytest tests/ -q
+pytest tests/ -q
 ```
 Проверката на договора с реалния agy трябва да се стартира само от човек (струва кредити):
 ```bash
@@ -122,3 +151,32 @@ bash scripts/agy_parallel.sh --verify
 
 ### При изчерпана квота
 Ако срещнете `FAILED(quota)`, преминете към kimi-delegate и след това към нативните подагенти на Claude.
+
+### Архитектурно описание
+```mermaid
+graph TD
+    A[Task Briefs *.md] --> B[agy_parallel.sh Launcher]
+    B --> C{Linter & Validator}
+    C -->|Невалидно| D[FAILED Prelaunch]
+    C -->|Валидно| E[Worktree Allocator]
+    E --> F[Parallel Executor]
+    F --> G[Antigravity CLI agy]
+    G --> H{Schema Gate}
+    H -->|Съвпадение| I[Status OK]
+    H -->|Несъвпадение / salvage| J[Status PARTIAL]
+    H -->|Несъвпадение / strict| K[Status FAILED]
+```
+
+### Ръководство за отстраняване на неизправности
+| Статус / Грешка | Причина | Решение |
+| :--- | :--- | :--- |
+| `FAILED(exit)` | Процесът `agy` завърши с ненулев изходен код. | Проверете съответния лог файл в `.agy-runs/<ts>/<name>.log` за грешки и изключения. |
+| `FAILED(timeout)` | Времето за изпълнение на агента изтече. | Увеличете времето чрез параметъра `--timeout` или дефинирайте по-голям лимит във frontmatter на заданието. |
+| `FAILED(quota)` | Достигнат лимит на квотата или изчерпани кредити на Google Pro/Ultra. | Превключете към `kimi-delegate` или нативните Claude subagents. |
+| `FAILED(schema)` | Изходът не съответства на зададената JSON схема. | Проверете лог файла. В режим `salvage` разгледайте спасените полета в `<name>.partial.json`. |
+| `FAILED(worktree)` | Грешка при създаване на git worktree (напр. съществуващ клон или папка). | Изчистете остатъчните работни дървета ръчно чрез `git worktree prune` и изтрийте проблемния клон. |
+
+### Чести проблеми и Златни правила
+* **Златно правило 1: Позициониране на промпта.** Флагът `-p` в `agy` обвързва следващия токен като промпт. Всички останали флагове трябва да се подават *след* промпта, в противен случай се поглъщат като част от него.
+* **Златно правило 2: Ограничение до директория $HOME.** Поради изискванията на `proot` за bind-mount, хранилището и заданията трябва да са разположени в `$HOME` (ext4), а не в споделеното хранилище `/storage/emulated/0`.
+* **Златно правило 3: Задължителен лимит за време.** Никога не стартирайте паралелни процеси без лимит за време. Скриптът налага `timeout -k 10` за гарантирано убиване на увиснали процеси.

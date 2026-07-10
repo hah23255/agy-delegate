@@ -40,9 +40,9 @@ lint_brief() { # FILE -> 0 if all required sections present, else 1 + stderr
 
 duration_to_secs() { # Go-style single-unit duration -> seconds
 	case "$1" in
-	*h) echo $((${1%h} * 3600)) ;;
-	*m) echo $((${1%m} * 60)) ;;
-	*s) echo "${1%s}" ;;
+	*h) echo $((10#${1%h} * 3600)) ;;
+	*m) echo $((10#${1%m} * 60)) ;;
+	*s) echo $((10#${1%s})) ;;
 	*) echo "$1" ;;
 	esac
 }
