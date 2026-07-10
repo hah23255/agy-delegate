@@ -1,0 +1,12 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Fake agy for tests. Records argv; emits canned stdout; controllable exit.
+#   AGY_STUB_ARGS   file to append argv to (one arg per line, run separator '==')
+#   AGY_STUB_STDOUT file whose contents to print
+#   AGY_STUB_SLEEP  seconds to sleep (throttle tests)
+#   AGY_STUB_EXIT   exit code (default 0)
+if [[ -n "${AGY_STUB_ARGS:-}" ]]; then
+  { echo "=="; printf '%s\n' "$@"; } >> "$AGY_STUB_ARGS"
+fi
+sleep "${AGY_STUB_SLEEP:-0}"
+[[ -n "${AGY_STUB_STDOUT:-}" && -f "${AGY_STUB_STDOUT}" ]] && cat "$AGY_STUB_STDOUT"
+exit "${AGY_STUB_EXIT:-0}"
