@@ -122,7 +122,7 @@ assert_file_exists "$TMP/run1/meta.txt" "meta.txt written"
 assert_contains "$(cat "$TMP/run1/one.log")" "stub says hi" "agent stdout teed to log"
 # agy's -p/--print BINDS the next token as the prompt: -p must be argv[0]
 # with the prompt immediately after, flags trailing (verified live 2026-07-10)
-assert_eq "$(awk 'NR==2{print; exit}' "$ARGS")" "-p" "prompt flag is first argv"
+assert_eq "$(awk 'prev == "==" && $0 == "-p" { found=1 } { prev=$0 } END { print found+0 }' "$ARGS")" "1" "prompt flag is first argv"
 assert_contains "$(cat "$ARGS")" "--dangerously-skip-permissions" "auto-approve flag passed"
 assert_contains "$(cat "$ARGS")" "Gemini 3.5 Flash (High)" "model flag passed intact"
 assert_contains "$out" "OK" "summary shows OK"
