@@ -1,6 +1,6 @@
 """Extract and validate an agy agent's final JSON output against a JSON schema.
 
-Usage (CLI added in a later task):
+Usage:
     python3 validate_output.py LOG_FILE SCHEMA_FILE --out PARTIAL_JSON
 Exit codes: 0 valid, 1 invalid, 2 partial salvaged, 3 nothing extractable.
 """
@@ -17,10 +17,38 @@ def _repair(s):
 
 
 def _try_parse(s):
-    try:
-        return json.loads(_repair(s))
-    except (json.JSONDecodeError, ValueError):
-        return None
+    for variant in (s, _repair(s)):
+        try:
+            return json.loads(variant)
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+def _span_end(text, i):
+    """Index just past the balanced JSON value starting at text[i], string-aware; None if unbalanced."""
+    depth = 0
+    in_str = False
+    esc = False
+    for j in range(i, len(text)):
+        ch = text[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+    return None
 
 
 def extract_json(text):
@@ -31,22 +59,28 @@ def extract_json(text):
         parsed = _try_parse(block)
         if parsed is not None:
             return parsed
-    # Preference 2: bare values. Scan a consistently repaired copy so parse
-    # spans and indices live in the same string (repairing per-slice desyncs
-    # raw_decode's end offset from the original text).
-    scan_text = _repair(text)
+    # Preference 2: bare values, scanned in ORIGINAL text. Verbatim parse
+    # first (protects string literals from repair); on failure, repair only
+    # the balanced span found by a string-aware bracket walk, so span
+    # bookkeeping never leaves original-string offsets.
     decoder = json.JSONDecoder()
     last = None
     last_end = 0
-    for i, ch in enumerate(scan_text):
+    for i, ch in enumerate(text):
         if ch not in "{[" or i < last_end:
             continue
         try:
-            parsed, end = decoder.raw_decode(scan_text[i:])
-            last = parsed
-            last_end = i + end
-        except (json.JSONDecodeError, ValueError):
+            parsed, end = decoder.raw_decode(text[i:])
+            last, last_end = parsed, i + end
             continue
+        except (json.JSONDecodeError, ValueError):
+            pass
+        end = _span_end(text, i)
+        if end is None:
+            continue
+        candidate = _try_parse(text[i:end])
+        if candidate is not None:
+            last, last_end = candidate, end
     return last
 
 

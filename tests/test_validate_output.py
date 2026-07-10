@@ -46,6 +46,16 @@ def test_span_skip_correct_with_trailing_comma_repair():
     assert extract_json(log) == [{"a": 1}, {"b": 2}, {"c": 3}, {}]
 
 
+def test_string_literal_with_brace_comma_not_corrupted():
+    log = '{"note": "tail chars: ,}", "count": 1}'
+    assert extract_json(log) == {"note": "tail chars: ,}", "count": 1}
+
+
+def test_fenced_string_literal_with_bracket_comma_not_corrupted():
+    log = '```json\n{"cmd": "arr = [1, 2, ]", "n": 2}\n```'
+    assert extract_json(log) == {"cmd": "arr = [1, 2, ]", "n": 2}
+
+
 SCHEMA = {
     "type": "object",
     "properties": {
