@@ -16,17 +16,18 @@ brief_body() { # FILE -> print brief with frontmatter stripped
 	awk '
     NR==1 && $0 != "---" { nofm=1 }
     nofm { print; next }
-    NR==1 { infm=1; next }
-    infm && $0 == "---" { infm=0; body=1; next }
-    infm { next }
-    body { print }' "$1"
+    NR==1 { infm=1; buf[bn++]=$0; next }
+    infm && $0 == "---" { infm=0; body=1; bn=0; next }
+    infm { buf[bn++]=$0; next }
+    body { print }
+    END { if (infm) for (i=0; i<bn; i++) print buf[i] }' "$1"
 }
 
 lint_brief() { # FILE -> 0 if all required sections present, else 1 + stderr
 	local f="$1" missing=""
 	local sec
 	for sec in "## Goal" "## Scope" "## Requirements" "## Verification"; do
-		if ! awk -v s="$sec" 'index($0, s) == 1 { found=1 } END { exit !found }' "$f"; then
+		if ! awk -v s="$sec" '{ line=$0; sub(/[ \t]+$/, "", line) } line == s { found=1 } END { exit !found }' "$f"; then
 			missing="$missing $sec;"
 		fi
 	done

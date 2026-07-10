@@ -55,6 +55,11 @@ git -C "$TMP" init -q -b main 2>/dev/null || true
 out="$(cd "$TMP" && AGY_STUB_ARGS="$TMP/args.txt" bash "$SCRIPT" --repo "$TMP" --no-worktree --no-lint "$TMP/bad.md" 2>&1)"
 assert_eq "$?" "0" "--no-lint bypasses lint"
 
+# --- lint: prefix superset does not satisfy required section (review fix) ---
+printf '## Goals\ng\n## Scope\ns\n## Requirements\nr\n## Verification\nv\n' >"$TMP/prefix.md"
+err="$(bash "$SCRIPT" --repo "$TMP" "$TMP/prefix.md" 2>&1)"
+assert_eq "$?" "1" "lint rejects ## Goals for ## Goal"
+
 # --- frontmatter: model/timeout/schema extraction ---
 cat >"$TMP/fm.md" <<'EOF'
 ---
@@ -82,5 +87,78 @@ case "$body" in *"model:"*)
 	echo "FAIL: brief_body leaks frontmatter"
 	;;
 *) PASS=$((PASS + 1)) ;; esac
+
+# --- brief_body: unterminated frontmatter treated as body (review fix) ---
+printf -- '---\nmodel: x\n## Goal\ng\n' >"$TMP/unterm.md"
+body_u="$(bash -c "source '$SCRIPT_SRC_HELPER'; brief_body '$TMP/unterm.md'")"
+assert_contains "$body_u" "## Goal" "unterminated fm: body preserved"
+
+# --- launch: happy path, two briefs, logs + args recorded ---
+LAUNCH="$TMP/launch"
+mkdir -p "$LAUNCH"
+cd "$LAUNCH"
+git init -q -b main
+git commit -q --allow-empty -m init
+mkbrief "$LAUNCH/one.md"
+mkbrief "$LAUNCH/two.md"
+ARGS="$TMP/launch-args.txt"
+: >"$ARGS"
+echo "stub says hi" >"$TMP/stub-out.txt"
+out="$(AGY_STUB_ARGS="$ARGS" AGY_STUB_STDOUT="$TMP/stub-out.txt" \
+	bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --results-dir "$TMP/run1" \
+	--model "Gemini 3.5 Flash (High)" "$LAUNCH/one.md" "$LAUNCH/two.md" 2>&1)"
+assert_eq "$?" "0" "all agents OK -> exit 0"
+assert_file_exists "$TMP/run1/one.log" "log for brief one"
+assert_file_exists "$TMP/run1/two.log" "log for brief two"
+assert_file_exists "$TMP/run1/meta.txt" "meta.txt written"
+assert_contains "$(cat "$TMP/run1/one.log")" "stub says hi" "agent stdout teed to log"
+assert_contains "$(cat "$ARGS")" "--print" "agy called with --print"
+assert_contains "$(cat "$ARGS")" "--dangerously-skip-permissions" "auto-approve flag passed"
+assert_contains "$(cat "$ARGS")" "Gemini 3.5 Flash (High)" "model flag passed intact"
+assert_contains "$out" "OK" "summary shows OK"
+
+# --- frontmatter model override beats --model flag ---
+cat >"$LAUNCH/fmodel.md" <<'EOF'
+---
+model: Claude Opus 4.6 (Thinking)
+---
+## Goal
+g
+## Scope
+s
+## Requirements
+r
+## Verification
+v
+EOF
+: >"$ARGS"
+AGY_STUB_ARGS="$ARGS" bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run2" --model "Gemini 3.5 Flash (High)" "$LAUNCH/fmodel.md" >/dev/null 2>&1
+assert_contains "$(cat "$ARGS")" "Claude Opus 4.6 (Thinking)" "frontmatter model wins"
+
+# --- failure aggregation: exit = #failed ---
+out="$(AGY_STUB_EXIT=7 bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run3" "$LAUNCH/one.md" "$LAUNCH/two.md" 2>&1)"
+assert_eq "$?" "2" "two failures -> exit 2"
+assert_contains "$out" "FAILED(exit)" "summary shows FAILED(exit)"
+
+# --- quota refinement ---
+echo "Error: quota exceeded for this billing period" >"$TMP/quota-out.txt"
+out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/quota-out.txt" bash "$SCRIPT" \
+	--repo "$LAUNCH" --no-worktree --results-dir "$TMP/run4" "$LAUNCH/one.md" 2>&1)"
+assert_eq "$?" "1" "quota failure counts as failed"
+assert_contains "$out" "FAILED(quota)" "quota detected from log"
+
+# --- throttle: --max-parallel 1 serializes ---
+start=$(date +%s)
+AGY_STUB_SLEEP=2 bash "$SCRIPT" --repo "$LAUNCH" --no-worktree \
+	--results-dir "$TMP/run5" --max-parallel 1 "$LAUNCH/one.md" "$LAUNCH/two.md" >/dev/null 2>&1
+elapsed=$(($(date +%s) - start))
+if [[ $elapsed -ge 4 ]]; then
+	PASS=$((PASS + 1))
+else
+	FAIL=$((FAIL + 1))
+	echo "FAIL: throttle — expected >=4s serialized, got ${elapsed}s"
+fi
 
 report

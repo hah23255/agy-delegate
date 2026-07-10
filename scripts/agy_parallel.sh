@@ -120,8 +120,142 @@ if [[ $LINT -eq 1 ]]; then
 	done
 fi
 
-# TEMPORARY minimal launch (replaced in the launch-engine task)
-for b in "${BRIEFS[@]}"; do
-	"$AGY_BIN" --print --dangerously-skip-permissions -p "$(brief_body "$b")" >/dev/null 2>&1 || exit 1
+IS_GIT=0
+if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then IS_GIT=1; fi
+if [[ $USE_WORKTREE -eq 1 && $IS_GIT -eq 0 ]]; then
+	echo "note: $REPO is not a git repo — falling back to --no-worktree." >&2
+	USE_WORKTREE=0
+fi
+if [[ -z "$BASE_REF" && $IS_GIT -eq 1 ]]; then
+	BASE_REF="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+fi
+
+TS="$(date +%Y%m%d-%H%M%S)"
+[[ -n "$RESULTS_DIR" ]] || RESULTS_DIR="$REPO/.agy-runs/$TS"
+mkdir -p "$RESULTS_DIR"
+
+{
+	echo "agy version: $("$AGY_BIN" --version 2>/dev/null || echo unknown)"
+	echo "started: $(date)"
+	echo "schema-mode: $SCHEMA_MODE"
+} >"$RESULTS_DIR/meta.txt"
+
+echo "agy parallel delegation"
+echo "  repo:        $REPO"
+echo "  briefs:      ${#BRIEFS[@]}"
+echo "  isolation:   $([[ $USE_WORKTREE -eq 1 ]] && echo "git worktree (base: $BASE_REF)" || echo "none (in-place)")"
+echo "  results dir: $RESULTS_DIR"
+echo
+
+declare -a NAMES PIDS WORKDIRS BRANCHES SCHEMAS
+run_count=0
+
+run_one() {
+	local brief="$1" name workdir branch logfile bmodel btimeout bschema secs
+	name="$(sanitize_name "$(basename "${brief%.*}")")"
+	logfile="$RESULTS_DIR/$name.log"
+
+	bmodel="$(fm_get "$brief" model)"
+	[[ -n "$bmodel" ]] || bmodel="$MODEL"
+	btimeout="$(fm_get "$brief" timeout)"
+	[[ -n "$btimeout" ]] || btimeout="$TIMEOUT"
+	bschema="$(fm_get "$brief" schema)"
+	if [[ -n "$bschema" && "$bschema" != /* ]]; then
+		bschema="$(cd "$(dirname "$brief")" && pwd)/$bschema"
+	fi
+	if [[ -n "$bschema" && ! -f "$bschema" ]]; then
+		echo "  FAILED(schema-file) [$name] schema not found: $bschema"
+		return 1
+	fi
+	secs="$(duration_to_secs "$btimeout")"
+
+	local prompt
+	prompt="$(brief_body "$brief")"
+	if [[ -n "$bschema" ]]; then
+		prompt="$prompt
+
+Your final message must be exactly one JSON object matching this schema, and no other text:
+$(cat "$bschema")"
+	fi
+
+	if [[ -z "${prompt//[[:space:]]/}" ]]; then
+		echo "  FAILED(empty-brief)  [$name]  brief body is empty"
+		return 1
+	fi
+
+	workdir="$REPO"
+	branch="(in-place)"
+
+	local -a agy_args=(--print --dangerously-skip-permissions --print-timeout "$btimeout")
+	[[ -n "$bmodel" ]] && agy_args+=(--model "$bmodel")
+
+	echo "  launching [$name]  model: ${bmodel:-default}  timeout: $btimeout"
+	(
+		echo "=== brief: $brief ==="
+		echo "=== started: $(date) ==="
+		cd "$workdir" || exit 98
+		timeout $((secs + 60)) "$AGY_BIN" "${agy_args[@]}" -p "$prompt"
+		rc=$?
+		echo "=== finished: $(date) (exit $rc) ==="
+		exit $rc
+	) >>"$logfile" 2>&1 &
+
+	NAMES+=("$name")
+	PIDS+=("$!")
+	WORKDIRS+=("$workdir")
+	BRANCHES+=("$branch")
+	SCHEMAS+=("$bschema")
+	return 0
+}
+
+wait_for_slot() {
+	[[ $MAX_PARALLEL -le 0 ]] && return 0
+	while :; do
+		local alive=0 p
+		for p in "${PIDS[@]-}"; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
+		[[ $alive -lt $MAX_PARALLEL ]] && return 0
+		sleep 1
+	done
+}
+
+for brief in "${BRIEFS[@]}"; do
+	wait_for_slot
+	run_one "$brief" && run_count=$((run_count + 1))
 done
-exit 0
+
+echo
+echo "Waiting for $run_count agent(s)..."
+echo
+
+log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
+	tail -n 20 "$1" 2>/dev/null | awk '
+    BEGIN { IGNORECASE=1 }
+    /quota|rate limit|credit|unauthorized|not logged in|login required/ { found=1 }
+    END { exit !found }' 2>/dev/null ||
+		tail -n 20 "$1" 2>/dev/null | tr 'A-Z' 'a-z' | awk '
+    /quota|rate limit|credit|unauthorized|not logged in|login required/ { found=1 }
+    END { exit !found }'
+}
+
+failed=0
+for i in "${!PIDS[@]}"; do
+	if wait "${PIDS[$i]}"; then
+		status="OK"
+	else
+		rc=$?
+		if [[ $rc -eq 124 ]]; then
+			status="FAILED(timeout)"
+		elif log_tail_matches_quota "$RESULTS_DIR/${NAMES[$i]}.log"; then
+			status="FAILED(quota)"
+		else
+			status="FAILED(exit)"
+		fi
+		failed=$((failed + 1))
+	fi
+	printf "  %-16s [%s]  branch: %-20s log: %s\n" \
+		"$status" "${NAMES[$i]}" "${BRANCHES[$i]}" "$RESULTS_DIR/${NAMES[$i]}.log"
+done
+
+echo
+echo "Done. $((run_count - failed))/$run_count agent(s) succeeded."
+exit $failed
