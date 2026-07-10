@@ -50,5 +50,6 @@ agy runs inside the `debian` proot-distro container. The Termux wrapper
 
 ## Statuses
 
-OK · PARTIAL(schema) · FAILED(exit|timeout|quota|schema|worktree) — exit code
-counts only FAILED agents.
+OK · PARTIAL(schema) · FAILED(exit|timeout|quota|schema|schema-file|empty-brief|bad-timeout|worktree) — the
+process exit code counts every FAILED item (agent failures and pre-launch
+failures alike); PARTIAL never fails the run.
