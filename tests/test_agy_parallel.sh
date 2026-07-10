@@ -245,4 +245,11 @@ AGY_STUB_ARGS="$ARGS" AGY_STUB_STDOUT="$TMP/valid-out.txt" bash "$SCRIPT" --repo
 	--no-worktree --results-dir "$TMP/run13" "$LAUNCH/withschema.md" >/dev/null 2>&1
 assert_contains "$(cat "$ARGS")" "exactly one JSON object" "schema instruction appended to prompt"
 
+# --- verify mode against the stub ---
+printf 'VERIFY_OK\n' >"$TMP/verify-out.txt"
+out="$(AGY_STUB_STDOUT="$TMP/verify-out.txt" bash "$SCRIPT" --verify 2>&1)"
+assert_eq "$?" "1" "verify: echo/edit checks can't fully pass against dumb stub"
+assert_contains "$out" "contract check" "verify announces itself"
+assert_contains "$out" "version" "verify includes version check"
+
 report

@@ -104,8 +104,45 @@ done
 
 case "$SCHEMA_MODE" in strict | salvage | warn) ;; *) die "bad --schema-mode: $SCHEMA_MODE" ;; esac
 
-# --verify handled in a later task; placeholder keeps flag parse honest.
-if [[ $VERIFY -eq 1 ]]; then die "--verify not implemented yet"; fi
+if [[ $VERIFY -eq 1 ]]; then
+	echo "agy contract check (COSTS CREDITS — real agent runs)"
+	vfailed=0
+	vtmp="$(mktemp -d)"
+	trap 'rm -rf "$vtmp"' EXIT
+
+	# 1. version
+	if v="$("$AGY_BIN" --version 2>/dev/null)"; then
+		echo "  PASS  version: $v"
+	else
+		echo "  FAIL  version: agy not reachable"
+		vfailed=$((vfailed + 1))
+	fi
+
+	# 2. non-TTY echo
+	r="$("$AGY_BIN" --print --print-timeout 90s -p 'Reply with exactly the word OK and nothing else' 2>/dev/null)"
+	if [[ "$r" == *OK* ]]; then
+		echo "  PASS  non-TTY echo"
+	else
+		echo "  FAIL  non-TTY echo (got: ${r:0:60})"
+		vfailed=$((vfailed + 1))
+	fi
+
+	# 3. file edit with auto-approve
+	printf 'color: RED\n' >"$vtmp/test.txt"
+	(
+		cd "$vtmp" && "$AGY_BIN" --print --dangerously-skip-permissions --print-timeout 240s \
+			-p 'Edit the file test.txt in the current directory: replace the word RED with GREEN. Then stop.'
+	) >/dev/null 2>&1
+	if awk '/GREEN/{found=1} END{exit !found}' "$vtmp/test.txt"; then
+		echo "  PASS  file edit"
+	else
+		echo "  FAIL  file edit"
+		vfailed=$((vfailed + 1))
+	fi
+
+	echo "verify: $((3 - vfailed))/3 checks passed"
+	exit $vfailed
+fi
 
 [[ ${#BRIEFS[@]} -gt 0 ]] || die "no brief files given. See --help."
 [[ -d "$REPO" ]] || die "repo path not found: $REPO"
