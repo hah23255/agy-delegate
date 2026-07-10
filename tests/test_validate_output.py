@@ -123,3 +123,16 @@ def test_cli_exit_3_when_no_json(tmp_path):
 def test_cli_exit_1_when_nothing_salvageable(tmp_path):
     rc, _ = _run_cli(tmp_path, '{"name": 5, "count": "bad"}')
     assert rc == 1
+
+
+def test_salvage_rejects_bool_for_integer_and_number():
+    schema = {
+        "type": "object",
+        "properties": {"count": {"type": "integer"}, "score": {"type": "number"}},
+        "required": [],
+    }
+    partial, missing, invalid = salvage({"count": True, "score": False}, schema)
+    assert partial == {}
+    assert missing == []
+    assert sorted(invalid) == ["count", "score"]
+

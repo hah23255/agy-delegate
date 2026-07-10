@@ -101,8 +101,6 @@ def _type_ok(value, prop_schema):
     py = _TYPE_MAP.get(expected)
     if py is None:
         return True
-    if expected == "integer" and isinstance(value, bool):
-        return False
     if expected in ("number", "integer") and isinstance(value, bool):
         return False
     return isinstance(value, py)
