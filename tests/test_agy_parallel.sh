@@ -156,6 +156,7 @@ out="$(AGY_STUB_EXIT=1 AGY_STUB_STDOUT="$TMP/quota-out.txt" bash "$SCRIPT" \
 	--repo "$LAUNCH" --no-worktree --results-dir "$TMP/run4" "$LAUNCH/one.md" 2>&1)"
 assert_eq "$?" "1" "quota failure counts as failed"
 assert_contains "$out" "FAILED(quota)" "quota detected from log"
+assert_contains "$out" "kimi-delegate or native subagents" "quota fallback hint printed"
 
 # --- throttle: --max-parallel 1 serializes ---
 start=$(date +%s)

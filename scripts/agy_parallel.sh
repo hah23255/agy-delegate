@@ -309,6 +309,7 @@ log_tail_matches_quota() { # LOGFILE -> 0 if quota/auth failure text present
 }
 
 failed=0
+quota_seen=0
 for i in "${!PIDS[@]}"; do
 	if wait "${PIDS[$i]}"; then
 		status="OK"
@@ -338,6 +339,7 @@ for i in "${!PIDS[@]}"; do
 			status="FAILED(timeout)"
 		elif log_tail_matches_quota "$RESULTS_DIR/${NAMES[$i]}.log"; then
 			status="FAILED(quota)"
+			quota_seen=1
 		else
 			status="FAILED(exit)"
 		fi
@@ -346,6 +348,10 @@ for i in "${!PIDS[@]}"; do
 	printf "  %-16s [%s]  branch: %-20s log: %s\n" \
 		"$status" "${NAMES[$i]}" "${BRANCHES[$i]}" "$RESULTS_DIR/${NAMES[$i]}.log"
 done
+
+if [[ $quota_seen -eq 1 ]]; then
+	echo "hint: quota/auth failures detected — delegate the remainder via kimi-delegate or native subagents (see SKILL.md fallback policy)."
+fi
 
 echo
 echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded."
