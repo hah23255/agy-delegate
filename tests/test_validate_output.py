@@ -32,3 +32,8 @@ def test_returns_none_when_no_json():
 def test_ignores_broken_json_and_finds_earlier_valid():
     log = '{"good": 1}\nlater the model wrote {broken: nope'
     assert extract_json(log) == {"good": 1}
+
+
+def test_extracts_bare_json_array():
+    log = 'Result follows:\n[1, 2, {"a": 3}]\n'
+    assert extract_json(log) == [1, 2, {"a": 3}]
