@@ -31,20 +31,20 @@ def extract_json(text):
         parsed = _try_parse(block)
         if parsed is not None:
             return parsed
-    # Preference 2: bare objects/arrays — try raw_decode at every '{' or '[', keep the last hit.
+    # Preference 2: bare values. Scan a consistently repaired copy so parse
+    # spans and indices live in the same string (repairing per-slice desyncs
+    # raw_decode's end offset from the original text).
+    scan_text = _repair(text)
     decoder = json.JSONDecoder()
     last = None
     last_end = 0
-    for i, ch in enumerate(text):
-        if ch not in "{[":
-            continue
-        # Skip candidate starts inside the previous successful parse span.
-        if i < last_end:
+    for i, ch in enumerate(scan_text):
+        if ch not in "{[" or i < last_end:
             continue
         try:
-            parsed, end_offset = decoder.raw_decode(_repair(text[i:]))
+            parsed, end = decoder.raw_decode(scan_text[i:])
             last = parsed
-            last_end = i + end_offset
+            last_end = i + end
         except (json.JSONDecodeError, ValueError):
             continue
     return last

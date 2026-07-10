@@ -37,3 +37,8 @@ def test_ignores_broken_json_and_finds_earlier_valid():
 def test_extracts_bare_json_array():
     log = 'Result follows:\n[1, 2, {"a": 3}]\n'
     assert extract_json(log) == [1, 2, {"a": 3}]
+
+
+def test_span_skip_correct_with_trailing_comma_repair():
+    log = '[{"a":1,},{"b":2,},{"c":3,},{}]'
+    assert extract_json(log) == [{"a": 1}, {"b": 2}, {"c": 3}, {}]
