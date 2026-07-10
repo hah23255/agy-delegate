@@ -119,7 +119,7 @@ if [[ $VERIFY -eq 1 ]]; then
 	fi
 
 	# 2. non-TTY echo
-	r="$("$AGY_BIN" --print --print-timeout 90s -p 'Reply with exactly the word OK and nothing else' 2>/dev/null)"
+	r="$("$AGY_BIN" -p 'Reply with exactly the word OK and nothing else' --print-timeout 90s 2>/dev/null)"
 	if [[ "$r" == *OK* ]]; then
 		echo "  PASS  non-TTY echo"
 	else
@@ -130,8 +130,8 @@ if [[ $VERIFY -eq 1 ]]; then
 	# 3. file edit with auto-approve
 	printf 'color: RED\n' >"$vtmp/test.txt"
 	(
-		cd "$vtmp" && "$AGY_BIN" --print --dangerously-skip-permissions --print-timeout 240s \
-			-p 'Edit the file test.txt in the current directory: replace the word RED with GREEN. Then stop.'
+		cd "$vtmp" && "$AGY_BIN" -p 'Edit the file test.txt in the current directory: replace the word RED with GREEN. Then stop.' \
+			--dangerously-skip-permissions --print-timeout 240s
 	) >/dev/null 2>&1
 	if awk '/GREEN/{found=1} END{exit !found}' "$vtmp/test.txt"; then
 		echo "  PASS  file edit"
@@ -257,7 +257,10 @@ $(cat "$bschema")"
 		branch="(in-place)"
 	fi
 
-	local -a agy_args=(--print --dangerously-skip-permissions --print-timeout "$btimeout")
+	# -p BINDS the next token as the prompt (verified live 2026-07-10): the
+	# prompt must directly follow -p; every other flag goes AFTER it, or
+	# --print swallows the neighboring flag as the prompt text.
+	local -a agy_args=(--dangerously-skip-permissions --print-timeout "$btimeout")
 	[[ -n "$bmodel" ]] && agy_args+=(--model "$bmodel")
 
 	echo "  launching [$name]  model: ${bmodel:-default}  timeout: $btimeout"
@@ -265,7 +268,7 @@ $(cat "$bschema")"
 		echo "=== brief: $brief ==="
 		echo "=== started: $(date) ==="
 		cd "$workdir" || exit 98
-		timeout $((secs + 60)) "$AGY_BIN" "${agy_args[@]}" -p "$prompt"
+		timeout $((secs + 60)) "$AGY_BIN" -p "$prompt" "${agy_args[@]}"
 		rc=$?
 		echo "=== finished: $(date) (exit $rc) ==="
 		exit $rc

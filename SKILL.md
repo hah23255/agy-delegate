@@ -14,10 +14,14 @@ Same doctrine as kimi-delegate; the executor and its contract differ.
 agy runs inside the `debian` proot-distro container. The Termux wrapper
 `~/.local/bin/agy` handles that transparently for any path under $HOME.
 
-    agy --print --dangerously-skip-permissions --print-timeout 15m \
-        [--model "Gemini 3.1 Pro (High)"] -p "FULL BRIEF"
+    agy -p "FULL BRIEF" --dangerously-skip-permissions --print-timeout 15m \
+        [--model "Gemini 3.1 Pro (High)"]
 
-- `--print` = non-interactive; result on stdout; exit code meaningful.
+- `-p`/`--print` = non-interactive; result on stdout; exit code meaningful.
+- **`-p` BINDS the next token as the prompt** (verified live 2026-07-10):
+  the prompt must immediately follow `-p`, all other flags AFTER it. A flag
+  placed between `--print` and the prompt is swallowed as the prompt text —
+  the agent then researches your flag instead of doing the task.
 - Verified non-TTY safe via the proot path (GitHub issues #76/#318 do NOT
   reproduce here). agy SELF-UPDATES silently — if behavior shifts, run
   `scripts/agy_parallel.sh --verify` (3 contract checks, costs credits).
