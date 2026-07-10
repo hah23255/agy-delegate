@@ -174,4 +174,19 @@ out="$(bash "$SCRIPT" --repo "$LAUNCH" --no-worktree --no-lint --results-dir "$T
 assert_eq "$?" "1" "empty brief with schema -> exit 1"
 assert_contains "$out" "FAILED(empty-brief)" "schema does not mask empty brief"
 
+# --- worktree: per-brief branch + agent runs inside it ---
+: >"$ARGS"
+out="$(AGY_STUB_ARGS="$ARGS" bash "$SCRIPT" --repo "$LAUNCH" \
+	--results-dir "$TMP/run6" "$LAUNCH/one.md" 2>&1)"
+assert_eq "$?" "0" "worktree run OK"
+assert_file_exists "$TMP/run6/worktrees/one" "worktree dir created"
+assert_eq "$(git -C "$LAUNCH" branch --list 'agy/one' | tr -d ' *+')" "agy/one" "branch agy/one exists"
+assert_contains "$out" "git -C" "summary prints review commands"
+
+# --- worktree failure -> FAILED(worktree), no agent launched ---
+out="$(bash "$SCRIPT" --repo "$LAUNCH" --base "no-such-ref" \
+	--results-dir "$TMP/run7" "$LAUNCH/two.md" 2>&1)"
+assert_eq "$?" "1" "bad base ref -> 1 failure"
+assert_contains "$out" "FAILED(worktree)" "worktree failure reported"
+
 report

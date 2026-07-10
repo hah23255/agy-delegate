@@ -185,8 +185,21 @@ Your final message must be exactly one JSON object matching this schema, and no 
 $(cat "$bschema")"
 	fi
 
-	workdir="$REPO"
-	branch="(in-place)"
+	if [[ $USE_WORKTREE -eq 1 ]]; then
+		workdir="$RESULTS_DIR/worktrees/$name"
+		branch="agy/$name"
+		mkdir -p "$RESULTS_DIR/worktrees"
+		if ! git -C "$REPO" worktree add -b "$branch" "$workdir" "$BASE_REF" >>"$logfile" 2>&1; then
+			# branch may already exist from a prior run; retry attaching to it
+			if ! git -C "$REPO" worktree add "$workdir" "$branch" >>"$logfile" 2>&1; then
+				echo "  FAILED(worktree)  [$name]  see $logfile"
+				return 1
+			fi
+		fi
+	else
+		workdir="$REPO"
+		branch="(in-place)"
+	fi
 
 	local -a agy_args=(--print --dangerously-skip-permissions --print-timeout "$btimeout")
 	[[ -n "$bmodel" ]] && agy_args+=(--model "$bmodel")
@@ -260,4 +273,9 @@ done
 
 echo
 echo "Done. $((run_count - failed))/$((run_count + failed_prelaunch)) agent(s) succeeded."
+if [[ $USE_WORKTREE -eq 1 ]]; then
+	echo "Review a branch:   git -C \"$REPO\" diff $BASE_REF..agy/<name>"
+	echo "Merge a branch:    git -C \"$REPO\" merge agy/<name>"
+	echo "Clean up worktree: git -C \"$REPO\" worktree remove \"$RESULTS_DIR/worktrees/<name>\""
+fi
 exit $((failed + failed_prelaunch))
